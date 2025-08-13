@@ -3,11 +3,39 @@ name: Build
 on:
   workflow_dispatch:
   push:
+    branches:
+      - '**'
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
+  decide:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - id: check
+        name: Check commit message for skip directive
+        run: |
+          msg="${{ github.event.head_commit.message }}"
+          subject="${msg%%$'\n'*}"
+          body="${msg#*$'\n'}"
+          first_body_line="$(printf "%s" "$body" | awk 'NF{print; exit}')"
+          skip="false"
+          case "$subject" in
+            "skip build:"*) skip="true" ;;
+          esac
+          case "$first_body_line" in
+            "skip build:"*) skip="true" ;;
+          esac
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: decide
+    if: needs.decide.outputs.skip != 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -33,18 +61,74 @@ jobs:
       - name: Create images
         run: sudo sh -e scripts/build_images.sh
 
+      - name: Determine artifact name
+        id: artifact_name
+        run: |
+          branch="$GITHUB_REF_NAME"
+          case "$branch" in
+            debian)
+              base="openstick-debian" ;;
+            ubuntu-*)
+              base="openstick-ubuntu" ;;
+            *)
+              # Fallback: sanitize branch for artifact naming
+              sanitized=$(echo "$branch" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-')
+              base="openstick-${sanitized}" ;;
+          esac
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "zip=${base}.zip" >> "$GITHUB_OUTPUT"
+
+      - name: Zip artifact
+        env:
+          ZIP_NAME: ${{ steps.artifact_name.outputs.zip }}
+        run: |
+          python3 - << 'PY'
+          import os, zipfile
+          zip_name = os.environ['ZIP_NAME']
+          with zipfile.ZipFile(zip_name, 'w', zipfile.ZIP_DEFLATED) as zf:
+              for root, _dirs, files in os.walk('files'):
+                  for f in files:
+                      full = os.path.join(root, f)
+                      arc = os.path.relpath(full, 'files')
+                      zf.write(full, arc)
+          print(f"Created {zip_name}")
+          PY
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: openstick-debian
-          path: files/*
+          name: ${{ steps.artifact_name.outputs.base }}
+          path: ${{ steps.artifact_name.outputs.zip }}
 
-      - name: Create Release with gh CLI (alternative approach)
-        if: startsWith(github.ref, 'refs/tags/') && true
-        run: |
-          gh release create ${{ github.ref_name }} \
-            --title "Release ${{ github.ref_name }}" \
-            --notes "Automated release for ${{ github.ref_name }}" \
-            files/*
+      - name: Create Release for this commit
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="build-${GITHUB_SHA}"
+
+          branch="$GITHUB_REF_NAME"
+          case "$branch" in
+            debian)
+              human="Debian" ;;
+            ubuntu-24.04)
+              human="Ubuntu 24.04 (Noble)" ;;
+            ubuntu-*)
+              ver="${branch#ubuntu-}"
+              human="Ubuntu ${ver}" ;;
+            *)
+              tmp="${branch//-/ }"
+              human="$(awk '{for(i=1;i<=NF;i++){ $i=toupper(substr($i,1,1)) substr($i,2)}; print}' <<< "$tmp")" ;;
+          esac
+
+          date_str="$(date -u +%Y-%m-%d)"
+          title="${human} build: ${date_str}"
+          notes="Automated release for commit ${GITHUB_SHA} on ${GITHUB_REF_NAME}"
+
+          asset="${{ steps.artifact_name.outputs.zip }}"
+
+          gh release create "$tag" \
+            --target "$GITHUB_SHA" \
+            --title "$title" \
+            --notes "$notes" \
+            --prerelease \
+            "$asset"
