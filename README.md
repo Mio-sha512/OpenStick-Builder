@@ -4,7 +4,10 @@ Image builder for MSM8916 based 4G modem dongles
 This builder uses the precompiled [kernel](https://pkgs.postmarketos.org/package/master/postmarketos/aarch64/linux-postmarketos-qcom-msm8916) provided by [postmarketOS](https://postmarketos.org/) for Qualcomm MSM8916 devices.
 
 > [!NOTE]
-> This repository creates a Debian-based image. For an Alpine-based image, refer to the [original repository](https://github.com/kinsamanka/OpenStick-Builder/tree/alpine) by kinsamanka.
+> Branch overview:
+> - `debian`  : Debian (stable) based image (default branch).
+> - `ubuntu-24.04` : Ubuntu 24.04 LTS (Noble) based image (identical build steps).
+> - Alpine (upstream) : Refer to the [original repository's](https://github.com/kinsamanka/OpenStick-Builder/tree/alpine) alpine branch (not maintained here).
 
 ## Build Instructions
 ### Build locally
@@ -14,13 +17,17 @@ This has been tested to work on **Ubuntu 22.04, 24.04 and 25.04**
   git clone --recurse-submodules https://github.com/Mio-sha512/OpenStick-Builder.git
   cd OpenStick-Builder/
   ```
-#### Quick
-- build
-  ```shell
-  cd OpenStick-Builder/
-  sudo ./build.sh
-  ```
-#### Detailed
+#### Quick (Debian branch)
+```shell
+git checkout debian   # if not already on it
+sudo ./build.sh
+```
+#### Quick (Ubuntu 24.04 branch)
+```shell
+git checkout ubuntu-24.04
+sudo ./build.sh
+```
+#### Detailed (same for any branch)
 - install dependencies
   ```shell
   sudo scripts/install_deps.sh

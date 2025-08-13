@@ -16,10 +16,10 @@ apt install -qqy --no-install-recommends \
     bridge-utils \
     dnsmasq \
     iptables \
-    libconfig11 \
+    libconfig9 \
     locales \
     modemmanager \
-    netcat-traditional \
+    netcat-openbsd \
     network-manager \
     openssh-server \
     qrtr-tools \
@@ -34,8 +34,77 @@ apt install -qqy --no-install-recommends \
     ca-certificates \
     zram-tools \
     bc \
-    ifupdown2 \
+    netplan.io \
     mobile-broadband-provider-info
+
+rm -f /etc/network/interfaces || true
+mkdir -p /etc/netplan
+cat <<'NPEOF' > /etc/netplan/01-br0.yaml
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    usb0:
+      optional: true
+    usb1:
+      optional: true
+  bridges:
+    br0:
+      interfaces: [usb0, usb1]
+      addresses: [192.168.100.1/24]
+      parameters:
+        stp: false
+      mtu: 1500
+      dhcp4: false
+      dhcp6: false
+      routes: []
+      nameservers:
+        addresses: [127.0.0.1]
+NPEOF
+
+# Apply netplan at first boot via systemd service
+cat <<'SRV' > /etc/systemd/system/netplan-apply.service
+[Unit]
+Description=Apply netplan configuration
+After=network-pre.target
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/netplan generate
+ExecStart=/usr/sbin/netplan apply
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+SRV
+
+systemctl enable netplan-apply.service || true
+
+# NAT + DNS redirect rules (will be added via rc.local if present)
+cat <<'FW' > /usr/local/sbin/setup-fw.sh
+#!/bin/sh
+iptables -t nat -C POSTROUTING -s 192.168.100.0/24 ! -d 192.168.100.0/24 -j MASQUERADE 2>/dev/null || \
+iptables -t nat -A POSTROUTING -s 192.168.100.0/24 ! -d 192.168.100.0/24 -j MASQUERADE
+for p in tcp udp; do
+  iptables -t nat -C PREROUTING -i br0 -p $p --dport 53 -j REDIRECT --to-ports 53 2>/dev/null || \
+  iptables -t nat -A PREROUTING -i br0 -p $p --dport 53 -j REDIRECT --to-ports 53
+done
+ip6tables -t nat -C POSTROUTING -s dead:beef::/64 ! -d dead:beef::/64 -j MASQUERADE 2>/dev/null || \
+ip6tables -t nat -A POSTROUTING -s dead:beef::/64 ! -d dead:beef::/64 -j MASQUERADE
+for p in tcp udp; do
+  ip6tables -t nat -C PREROUTING -i br0 -p $p --dport 53 -j REDIRECT --to-ports 53 2>/dev/null || \
+  ip6tables -t nat -A PREROUTING -i br0 -p $p --dport 53 -j REDIRECT --to-ports 53
+done
+FW
+chmod +x /usr/local/sbin/setup-fw.sh
+
+# Hook into rc.local if present
+if grep -q setup-fw.sh /etc/rc.local 2>/dev/null; then :; else
+  if [ -f /etc/rc.local ]; then
+    sed -i '/^exit 0/i /usr/local/sbin/setup-fw.sh' /etc/rc.local || true
+  fi
+fi
 
 # Cleanup
 apt clean
@@ -86,18 +155,15 @@ sed -i 's/^#HandlePowerKey=poweroff/HandlePowerKey=ignore/' /etc/systemd/logind.
 
 # Enable IPv4 and IPv6 forwarding
 if [ -f /etc/sysctl.conf ]; then
-    # Uncomment existing lines if they exist
-    sed -i -e 's/^#net.ipv4.ip_forward=1/net.ipv4.ip_forward=1/' -e 's/^#net.ipv6.conf.all.forwarding=1/net.ipv6.conf.all.forwarding=1/' /etc/sysctl.conf
-    # Add the lines if they don't exist at all
+    sed -i -e 's/^#net.ipv4.ip_forward=1/net.ipv4.ip_forward=1/' -e 's/^#net.ipv6.conf.all.forwarding=1/net.ipv6.conf.all.forwarding=1/' /etc/sysctl.conf 2>/dev/null || true
     grep -q '^net.ipv4.ip_forward' /etc/sysctl.conf || echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
     grep -q '^net.ipv6.conf.all.forwarding' /etc/sysctl.conf || echo 'net.ipv6.conf.all.forwarding=1' >> /etc/sysctl.conf
 else
-    # Create the file with the required settings
-    cat <<EOF > /etc/sysctl.conf
+    cat <<EOF2 > /etc/sysctl.conf
 # Enable IPv4 forwarding
 net.ipv4.ip_forward=1
 
 # Enable IPv6 forwarding
 net.ipv6.conf.all.forwarding=1
-EOF
+EOF2
 fi

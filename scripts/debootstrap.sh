@@ -1,22 +1,29 @@
 #!/bin/sh -e
 
 CHROOT=${CHROOT=$(pwd)/rootfs}
-RELEASE=${RELEASE=stable}
+RELEASE=${RELEASE=noble}
 HOST_NAME=${HOST_NAME=openstick}
 
 rm -rf ${CHROOT}
 
-debootstrap --foreign --arch arm64 \
-    --keyring /usr/share/keyrings/debian-archive-keyring.gpg ${RELEASE} ${CHROOT}
+apt-get update -qq
+apt-get install -y -qq ubuntu-keyring debootstrap qemu-user-static >/dev/null 2>&1 || true
+
+# Use the ARM (ports) mirror for arm64
+MIRROR=${MIRROR:=http://ports.ubuntu.com/ubuntu-ports}
+
+# Bootstrap base system
+debootstrap --foreign --arch=arm64 --keyring /usr/share/keyrings/ubuntu-archive-keyring.gpg \
+    ${RELEASE} ${CHROOT} ${MIRROR}
 
 cp $(which qemu-aarch64-static) ${CHROOT}/usr/bin
 
 chroot ${CHROOT} qemu-aarch64-static /bin/bash /debootstrap/debootstrap --second-stage
 
 cat << EOF > ${CHROOT}/etc/apt/sources.list
-deb http://deb.debian.org/debian ${RELEASE} main contrib non-free-firmware
-deb http://deb.debian.org/debian-security/ ${RELEASE}-security main contrib non-free-firmware
-deb http://deb.debian.org/debian ${RELEASE}-updates main contrib non-free-firmware
+deb ${MIRROR} ${RELEASE} main universe multiverse restricted
+deb ${MIRROR} ${RELEASE}-updates main universe multiverse restricted
+deb ${MIRROR} ${RELEASE}-security main universe multiverse restricted
 EOF
 
 mount -t proc proc ${CHROOT}/proc/
@@ -35,9 +42,9 @@ for a in proc sys dev/pts dev run; do
     umount ${CHROOT}/${a}
 done;
 
-rm ${CHROOT}/install_dnsproxy.sh
+rm -f ${CHROOT}/install_dnsproxy.sh
 rm -f ${CHROOT}/setup.sh
-echo -n > ${CHROOT}/root/.bash_history
+: > ${CHROOT}/root/.bash_history
 
 echo ${HOST_NAME} > ${CHROOT}/etc/hostname
 sed -i "/localhost/ s/$/ ${HOST_NAME}/" ${CHROOT}/etc/hosts
