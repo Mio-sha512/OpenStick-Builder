@@ -1,0 +1,19 @@
+[Unit]
+Description=Hostapd IEEE 802.11 AP, IEEE 802.1X/WPA/WPA2/EAP/RADIUS Authenticator
+After=sys-subsystem-net-devices-wlan0.device network.target
+Wants=sys-subsystem-net-devices-wlan0.device
+BindsTo=sys-subsystem-net-devices-wlan0.device
+ConditionPathExists=/sys/class/net/wlan0
+
+[Service]
+Type=forking
+PIDFile=/run/hostapd.pid
+Restart=on-failure
+RestartSec=2
+Environment=DAEMON_CONF=/etc/hostapd/hostapd.conf
+ExecStartPre=/bin/sh -c 'test -f $DAEMON_CONF'
+ExecStart=/usr/sbin/hostapd -B -P /run/hostapd.pid $DAEMON_CONF
+ExecReload=/bin/kill -HUP $MAINPID
+
+[Install]
+WantedBy=multi-user.target

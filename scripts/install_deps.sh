@@ -7,8 +7,9 @@ apt install -y \
     automake \
     binfmt-support \
     cmake \
-    debian-archive-keyring \
+    ubuntu-keyring \
     debootstrap \
+    mmdebstrap \
     device-tree-compiler \
     fdisk \
     g++-aarch64-linux-gnu \

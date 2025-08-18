@@ -2,29 +2,16 @@
 id=hotspot
 uuid=f9ab6583-91df-496f-90a8-639bd3253a27
 type=wifi
-autoconnect=true
+autoconnect=false
 interface-name=wlan0
-master=br0
-slave-type=bridge
 
 [wifi]
-band=bg
-channel=1
-mode=ap
-ssid=4G-UFI-XX
-
-[wifi-security]
-group=ccmp;
-key-mgmt=wpa-psk
-pairwise=ccmp;
-proto=rsn;
-psk=1234567890
+mode=infrastructure
 
 [ipv4]
 method=disabled
 
 [ipv6]
-addr-gen-mode=default
 method=disabled
 
 [proxy]

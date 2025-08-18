@@ -19,7 +19,7 @@ This has been tested to work on **Ubuntu 22.04, 24.04 and 25.04**
   ```
 #### Quick (Debian branch)
 ```shell
-git checkout debian   # if not already on it
+git checkout debian
 sudo ./build.sh
 ```
 #### Quick (Ubuntu 24.04 branch)

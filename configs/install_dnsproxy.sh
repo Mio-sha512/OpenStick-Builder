@@ -74,24 +74,51 @@ WantedBy=multi-user.target"
     # Write the service file to /etc/systemd/system/dnsproxy.service
     echo "$SERVICE_CONTENT" | tee /etc/systemd/system/dnsproxy.service > /dev/null
 
-    # Enable and start the service
-    systemctl daemon-reload
-    systemctl enable --now dnsproxy
+    # Enable and start the service (chroot-safe)
+    systemctl daemon-reload || true
+    systemctl enable dnsproxy || true
 
-    # Check if systemd-resolved is running
-    if systemctl is-active --quiet systemd-resolved; then
-        # Backup the original resolved.conf file
-        cp /etc/systemd/resolved.conf /etc/systemd/resolved.conf.bak
-
-        # Modify resolved.conf to forward DNS queries to 127.0.0.1:5353
-        sed -i 's/^DNS=.*/DNS=127.0.0.1:5353/' /etc/systemd/resolved.conf
-
-        # Restart systemd-resolved to apply changes
-        systemctl restart systemd-resolved
-
-        echo "Configured systemd-resolved to forward DNS queries to dnsproxy at 127.0.0.1:5353"
+    # Configure systemd-resolved (create config if in chroot)
+    if [ ! -f /etc/systemd/resolved.conf ]; then
+        # We're likely in chroot, create the config file
+        mkdir -p /etc/systemd
+        cat > /etc/systemd/resolved.conf << 'EOF'
+[Resolve]
+DNS=127.0.0.1:5353
+EOF
+        echo "Created systemd-resolved configuration for dnsproxy"
     else
-        echo "systemd-resolved is not running. Please manually configure your DNS to use the upstream server at 127.0.0.1:5353"
+        # Normal system, check if service is running
+        if systemctl is-active --quiet systemd-resolved 2>/dev/null; then
+            # Backup the original resolved.conf file
+            cp /etc/systemd/resolved.conf /etc/systemd/resolved.conf.bak 2>/dev/null || true
+
+            # Ensure [Resolve] section exists
+            if ! grep -q '^\[Resolve\]' /etc/systemd/resolved.conf; then
+                printf '\n[Resolve]\n' >> /etc/systemd/resolved.conf
+            fi
+            # Add or replace DNS setting to forward queries to dnsproxy
+            if grep -q '^\s*DNS=' /etc/systemd/resolved.conf; then
+                sed -i 's/^\s*DNS=.*/DNS=127.0.0.1:5353/' /etc/systemd/resolved.conf
+            else
+                printf 'DNS=127.0.0.1:5353\n' >> /etc/systemd/resolved.conf
+            fi
+
+            # Restart systemd-resolved to apply changes
+            systemctl restart systemd-resolved || true
+        else
+            # Service not running, just configure the file
+            if ! grep -q '^\[Resolve\]' /etc/systemd/resolved.conf; then
+                printf '\n[Resolve]\n' >> /etc/systemd/resolved.conf
+            fi
+            if grep -q '^\s*DNS=' /etc/systemd/resolved.conf; then
+                sed -i 's/^\s*DNS=.*/DNS=127.0.0.1:5353/' /etc/systemd/resolved.conf
+            else
+                printf 'DNS=127.0.0.1:5353\n' >> /etc/systemd/resolved.conf
+            fi
+        fi
+        
+        echo "Configured systemd-resolved to forward DNS queries to dnsproxy at 127.0.0.1:5353"
     fi
 
     echo ""

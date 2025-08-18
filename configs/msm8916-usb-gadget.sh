@@ -277,14 +277,17 @@ setup_gadget() {
 setup_network() {
     log "Configuring network interfaces"
 
-    # Wait for interfaces to appear
-    sleep 1
-
-    # Check if bridge exists
-    if ! ip link show "${NETWORK_BRIDGE}" >/dev/null 2>&1; then
-        log "Warning: Bridge ${NETWORK_BRIDGE} does not exist"
-        return
-    fi
+    # Wait up to 30s for bridge to exist (As NetworkManager is slower at creating it)
+    max_wait=30
+    waited=0
+    while ! ip link show "${NETWORK_BRIDGE}" >/dev/null 2>&1; do
+        if [ $waited -ge $max_wait ]; then
+            log "Warning: Bridge ${NETWORK_BRIDGE} does not exist after ${max_wait}s"
+            return
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
 
     # Add interfaces to bridge
     if [ "${ENABLE_RNDIS}" = "1" ] && [ -f functions/rndis.usb0/ifname ]; then
